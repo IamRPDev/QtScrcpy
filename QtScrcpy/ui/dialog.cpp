@@ -368,14 +368,13 @@ void Dialog::on_startServerBtn_clicked()
         int displayId = getDesktopDisplayId();
         if (displayId > 0) {
             params.displayId = displayId; // Dynamically detected HDMI stub display
+            outLog(QString("Desktop Mode: Targeted physical display %1").arg(displayId));
         } else {
-            qWarning() << "Desktop Mode is enabled but no external or virtual display was found!";
-            // Do not use a fallback like 106 as it crashes the server
-            // Continue with default display (0) or abort.
+            // Fallback: Create a virtual display if no physical one is found
+            // This is "functioning code" logic from the old project's DeX mode.
+            params.newDisplay = "1920x1080/160"; 
+            outLog("Desktop Mode: No physical display found. Creating virtual 1080p display.");
         }
-        // UHID input routing is not supported by scrcpy-server v3.3.3
-        // params.keyboardUhid = true;
-        // params.mouseUhid = true;
     }
 
     qsc::IDeviceManage::getInstance().connectDevice(params);
@@ -926,33 +925,39 @@ int Dialog::getDesktopDisplayId()
 {
     QProcess process;
     QStringList args;
-    args << "-s" << ui->serialBox->currentText().trimmed() << "shell";
-    // Avoid complex shell parsing in C++ strings to prevent compilation errors with escape sequences.
-    // We fetch the dumpsys output and parse it with Qt's QRegularExpression instead.
-    args << "dumpsys" << "display";
+    args << "-s" << ui->serialBox->currentText().trimmed() << "shell" << "dumpsys" << "display";
     
     process.start(Config::getInstance().getAdbPath().isEmpty() ? "adb" : Config::getInstance().getAdbPath(), args);
-    if (!process.waitForFinished(3000)) {
+    // Increase timeout for heavy dumpsys output
+    if (!process.waitForFinished(5000)) {
         return -1;
     }
     
-    QString output = process.readAllStandardOutput().trimmed();
+    QString output = process.readAllStandardOutput();
 #if (QT_VERSION < QT_VERSION_CHECK(6, 0, 0))
-    // Desktop Mode targets any secondary display (EXTERNAL or VIRTUAL).
-    // Captures the displayId from the DisplayViewport block.
-    QRegExp rx("DisplayViewport\\{type=(?:EXTERNAL|VIRTUAL)[^}]*displayId=([1-9][0-9]*)");
-    rx.setMinimal(true);
-    if (rx.indexIn(output) != -1) {
-        return rx.cap(1).toInt();
-    }
+    QStringList lines = output.split("\n");
 #else
-    QRegularExpression rx("DisplayViewport\\{type=(?:EXTERNAL|VIRTUAL)[^}]*displayId=([1-9][0-9]*)");
-    QRegularExpressionMatch match = rx.match(output);
-    if (match.hasMatch()) {
-        return match.captured(1).toInt();
-    }
+    QStringList lines = output.split("\n", Qt::SkipEmptyParts);
 #endif
-    // Fallback if not found by Regex but maybe it's in the list
+    
+    for (const QString &line : lines) {
+        // Look for the DisplayViewport block which contains the type and displayId
+        if (line.contains("DisplayViewport") && (line.contains("type=EXTERNAL") || line.contains("type=VIRTUAL"))) {
+#if (QT_VERSION < QT_VERSION_CHECK(6, 0, 0))
+            QRegExp rx("displayId=([1-9][0-9]*)");
+            if (rx.indexIn(line) != -1) {
+                return rx.cap(1).toInt();
+            }
+#else
+            QRegularExpression rx("displayId=([1-9][0-9]*)");
+            QRegularExpressionMatch match = rx.match(line);
+            if (match.hasMatch()) {
+                return match.captured(1).toInt();
+            }
+#endif
+        }
+    }
+    
     return -1;
 }
 
