@@ -365,14 +365,15 @@ void Dialog::on_startServerBtn_clicked()
 
     // Apply Desktop Mode settings for Samsung DeX / HDMI environment
     if (ui->desktopModeCheck->isChecked()) {
-        int displayId = 106;
+        int displayId = getDesktopDisplayId();
         if (displayId > 0) {
             params.displayId = displayId; // Dynamically detected HDMI stub display
         } else {
             params.displayId = 106; // Fallback
         }
-        params.keyboardUhid = true; // Route HID keyboard via UHID
-        params.mouseUhid = true; // Route HID mouse via UHID
+        // UHID input routing is not supported by scrcpy-server v3.3.3
+        // params.keyboardUhid = true;
+        // params.mouseUhid = true;
     }
 
     qsc::IDeviceManage::getInstance().connectDevice(params);
@@ -914,3 +915,40 @@ void Dialog::on_wifiConnectBtn_clicked()
 
     on_startServerBtn_clicked();
 }
+
+#include <QProcess>
+
+// Dynamically detects the display ID of the secondary external (HDMI/DeX) display
+// using Android's 'dumpsys display' command.
+int Dialog::getDesktopDisplayId()
+{
+    QProcess process;
+    QStringList args;
+    args << "-s" << ui->serialBox->currentText().trimmed() << "shell";
+    // Avoid complex shell parsing in C++ strings to prevent compilation errors with escape sequences.
+    // We fetch the dumpsys output and parse it with Qt's QRegularExpression instead.
+    args << "dumpsys" << "display";
+    
+    process.start(Config::getInstance().getAdbPath().isEmpty() ? "adb" : Config::getInstance().getAdbPath(), args);
+    if (!process.waitForFinished(3000)) {
+        return -1;
+    }
+    
+    QString output = process.readAllStandardOutput().trimmed();
+#if (QT_VERSION < QT_VERSION_CHECK(6, 0, 0))
+    QRegExp rx("mDisplayId=([0-9]+).*?type=EXTERNAL");
+    rx.setMinimal(true);
+    if (rx.indexIn(output) != -1) {
+        return rx.cap(1).toInt();
+    }
+#else
+    QRegularExpression rx("mDisplayId=([0-9]+).*?type=EXTERNAL");
+    QRegularExpressionMatch match = rx.match(output);
+    if (match.hasMatch()) {
+        return match.captured(1).toInt();
+    }
+#endif
+    // Fallback if not found by Regex but maybe it's in the list
+    return -1;
+}
+
