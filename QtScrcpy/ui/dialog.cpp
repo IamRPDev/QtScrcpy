@@ -363,15 +363,26 @@ void Dialog::on_startServerBtn_clicked()
     params.codecName = Config::getInstance().getCodecName();
     params.scid = QRandomGenerator::global()->bounded(1, 10000) & 0x7FFFFFFF;
 
-    // Apply Desktop Mode settings for Samsung DeX / HDMI environment
+    /**
+     * Desktop Mode (Samsung DeX / Generic Android Desktop)
+     * 
+     * This logic handles the initialization of secondary desktop displays.
+     * It attempts to dynamically detect a physical HDMI/External display first.
+     * If no physical display is found, it falls back to creating a 1080p virtual display,
+     * which triggers Samsung DeX or standard Android Desktop Mode on supported devices.
+     */
     if (ui->desktopModeCheck->isChecked()) {
         int displayId = getDesktopDisplayId();
         if (displayId > 0) {
-            params.displayId = displayId; // Dynamically detected HDMI stub display
+            // Found a physical HDMI stub or external display (e.g., displayId 136)
+            params.displayId = displayId; 
             outLog(QString("Desktop Mode: Targeted physical display %1").arg(displayId));
         } else {
-            // Fallback: Create a virtual display if no physical one is found
-            // This is "functioning code" logic from the old project's DeX mode.
+            /**
+             * Fallback: Create a virtual display.
+             * This utilizes the 'new_display' scrcpy-server parameter (e.g., 1920x1080 at 160 DPI).
+             * On Samsung devices, this is the standard way to trigger DeX without a physical cable.
+             */
             params.newDisplay = "1920x1080/160"; 
             outLog("Desktop Mode: No physical display found. Creating virtual 1080p display.");
         }
@@ -919,8 +930,19 @@ void Dialog::on_wifiConnectBtn_clicked()
 
 #include <QProcess>
 
-// Dynamically detects the display ID of the secondary external (HDMI/DeX) display
-// using Android's 'dumpsys display' command.
+/**
+ * getDesktopDisplayId
+ * 
+ * Performs a deep scan of the Android display system to identify secondary viewports.
+ * It prioritizes EXTERNAL (physical HDMI) and VIRTUAL (developer overlays) display types.
+ * 
+ * Logic:
+ * 1. Executes 'dumpsys display' via ADB.
+ * 2. Parses output line-by-line to find the "DisplayViewport" block.
+ * 3. Extracts 'displayId' for any active secondary viewport (IDs > 0).
+ * 
+ * @return The ID of the secondary display, or -1 if no desktop-capable display is found.
+ */
 int Dialog::getDesktopDisplayId()
 {
     QProcess process;
@@ -928,22 +950,30 @@ int Dialog::getDesktopDisplayId()
     args << "-s" << ui->serialBox->currentText().trimmed() << "shell" << "dumpsys" << "display";
     
     process.start(Config::getInstance().getAdbPath().isEmpty() ? "adb" : Config::getInstance().getAdbPath(), args);
-    // Increase timeout for heavy dumpsys output
+    
+    // Some devices have massive dumpsys output; 5s timeout ensures we capture the full stream.
     if (!process.waitForFinished(5000)) {
         return -1;
     }
     
     QString output = process.readAllStandardOutput();
 #if (QT_VERSION < QT_VERSION_CHECK(6, 0, 0))
+    // Qt 5.x split compatibility
     QStringList lines = output.split("\n");
 #else
+    // Qt 6.x split compatibility
     QStringList lines = output.split("\n", Qt::SkipEmptyParts);
 #endif
     
     for (const QString &line : lines) {
-        // Look for the DisplayViewport block which contains the type and displayId
+        /**
+         * We specifically target "DisplayViewport" entries.
+         * Type EXTERNAL = Physical HDMI/USB-C stubs.
+         * Type VIRTUAL  = Wireless DeX or Developer 'Simulate secondary displays'.
+         */
         if (line.contains("DisplayViewport") && (line.contains("type=EXTERNAL") || line.contains("type=VIRTUAL"))) {
 #if (QT_VERSION < QT_VERSION_CHECK(6, 0, 0))
+            // Extract displayId from the viewport attributes (e.g., ... displayId=2 ...)
             QRegExp rx("displayId=([1-9][0-9]*)");
             if (rx.indexIn(line) != -1) {
                 return rx.cap(1).toInt();
