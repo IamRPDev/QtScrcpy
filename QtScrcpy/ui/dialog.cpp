@@ -369,7 +369,9 @@ void Dialog::on_startServerBtn_clicked()
         if (displayId > 0) {
             params.displayId = displayId; // Dynamically detected HDMI stub display
         } else {
-            params.displayId = 106; // Fallback
+            qWarning() << "Desktop Mode is enabled but no external or virtual display was found!";
+            // Do not use a fallback like 106 as it crashes the server
+            // Continue with default display (0) or abort.
         }
         // UHID input routing is not supported by scrcpy-server v3.3.3
         // params.keyboardUhid = true;
@@ -938,13 +940,13 @@ int Dialog::getDesktopDisplayId()
 #if (QT_VERSION < QT_VERSION_CHECK(6, 0, 0))
     // Desktop Mode targets any secondary display (EXTERNAL or VIRTUAL).
     // Captures the displayId from the DisplayViewport block.
-    QRegExp rx("type=(?:EXTERNAL|VIRTUAL).*?displayId=([1-9][0-9]*)");
+    QRegExp rx("DisplayViewport\\{type=(?:EXTERNAL|VIRTUAL)[^}]*displayId=([1-9][0-9]*)");
     rx.setMinimal(true);
     if (rx.indexIn(output) != -1) {
         return rx.cap(1).toInt();
     }
 #else
-    QRegularExpression rx("type=(?:EXTERNAL|VIRTUAL).*?displayId=([1-9][0-9]*)");
+    QRegularExpression rx("DisplayViewport\\{type=(?:EXTERNAL|VIRTUAL)[^}]*displayId=([1-9][0-9]*)");
     QRegularExpressionMatch match = rx.match(output);
     if (match.hasMatch()) {
         return match.captured(1).toInt();
