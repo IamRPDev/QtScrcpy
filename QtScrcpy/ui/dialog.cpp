@@ -936,14 +936,15 @@ int Dialog::getDesktopDisplayId()
     
     QString output = process.readAllStandardOutput().trimmed();
 #if (QT_VERSION < QT_VERSION_CHECK(6, 0, 0))
-    // Samsung DeX uses type=VIRTUAL instead of EXTERNAL. We capture the first displayId > 0.
-    QRegExp rx("displayId=([1-9][0-9]*)");
+    // Samsung DeX physical HDMI stubs use type=EXTERNAL. 
+    // Captures the displayId from the DisplayViewport block.
+    QRegExp rx("type=EXTERNAL.*?displayId=([1-9][0-9]*)");
     rx.setMinimal(true);
     if (rx.indexIn(output) != -1) {
         return rx.cap(1).toInt();
     }
 #else
-    QRegularExpression rx("displayId=([1-9][0-9]*)");
+    QRegularExpression rx("type=EXTERNAL.*?displayId=([1-9][0-9]*)");
     QRegularExpressionMatch match = rx.match(output);
     if (match.hasMatch()) {
         return match.captured(1).toInt();
