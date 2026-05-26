@@ -223,6 +223,7 @@ void Dialog::updateBootConfig(bool toView)
         ui->useSingleModeCheck->setChecked(config.simpleMode);
         ui->autoUpdatecheckBox->setChecked(config.autoUpdateDevice);
         ui->showToolbar->setChecked(config.showToolbar);
+        ui->desktopModeCheck->setChecked(config.desktopMode);
     } else {
         UserBootConfig config;
 
@@ -242,6 +243,7 @@ void Dialog::updateBootConfig(bool toView)
         config.simpleMode = ui->useSingleModeCheck->isChecked();
         config.autoUpdateDevice = ui->autoUpdatecheckBox->isChecked();
         config.showToolbar = ui->showToolbar->isChecked();
+        config.desktopMode = ui->desktopModeCheck->isChecked();
 
         // 保存当前IP到历史记录
         QString currentIp = ui->deviceIpEdt->currentText().trimmed();
@@ -360,6 +362,18 @@ void Dialog::on_startServerBtn_clicked()
     params.codecOptions = Config::getInstance().getCodecOptions();
     params.codecName = Config::getInstance().getCodecName();
     params.scid = QRandomGenerator::global()->bounded(1, 10000) & 0x7FFFFFFF;
+
+    // Apply Desktop Mode settings for Samsung DeX / HDMI environment
+    if (ui->desktopModeCheck->isChecked()) {
+        int displayId = 106;
+        if (displayId > 0) {
+            params.displayId = displayId; // Dynamically detected HDMI stub display
+        } else {
+            params.displayId = 106; // Fallback
+        }
+        params.keyboardUhid = true; // Route HID keyboard via UHID
+        params.mouseUhid = true; // Route HID mouse via UHID
+    }
 
     qsc::IDeviceManage::getInstance().connectDevice(params);
 }
@@ -665,72 +679,6 @@ void Dialog::on_usbConnectBtn_clicked()
     on_startServerBtn_clicked();
 }
 
-int Dialog::findDeviceFromeSerialBox(bool wifi)
-{
-    QString regStr = "\\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\:([0-9]|[1-9]\\d|[1-9]\\d{2}|[1-9]\\d{3}|[1-5]\\d{4}|6[0-4]\\d{3}|65[0-4]\\d{2}|655[0-2]\\d|6553[0-5])\\b";
-#if (QT_VERSION < QT_VERSION_CHECK(6, 0, 0))
-    QRegExp regIP(regStr);
-#else
-    QRegularExpression regIP(regStr);
-#endif
-    for (int i = 0; i < ui->serialBox->count(); ++i) {
-#if (QT_VERSION < QT_VERSION_CHECK(6, 0, 0))
-        bool isWifi = regIP.exactMatch(ui->serialBox->itemText(i));
-#else
-        bool isWifi = regIP.match(ui->serialBox->itemText(i)).hasMatch();
-#endif
-        bool found = wifi ? isWifi : !isWifi;
-        if (found) {
-            return i;
-        }
-    }
-
-    return -1;
-}
-
-void Dialog::on_wifiConnectBtn_clicked()
-{
-    on_stopAllServerBtn_clicked();
-    delayMs(200);
-
-    on_updateDevice_clicked();
-    delayMs(200);
-
-    int firstUsbDevice = findDeviceFromeSerialBox(false);
-    if (-1 == firstUsbDevice) {
-        qWarning() << "No use device is found!";
-        return;
-    }
-    ui->serialBox->setCurrentIndex(firstUsbDevice);
-
-    on_getIPBtn_clicked();
-    delayMs(200);
-
-    on_startAdbdBtn_clicked();
-    delayMs(1000);
-
-    on_wirelessConnectBtn_clicked();
-    delayMs(2000);
-
-    on_updateDevice_clicked();
-    delayMs(200);
-
-    int firstWifiDevice = findDeviceFromeSerialBox(true);
-    if (-1 == firstWifiDevice) {
-        qWarning() << "No wifi device is found!";
-        return;
-    }
-    ui->serialBox->setCurrentIndex(firstWifiDevice);
-
-    on_startServerBtn_clicked();
-}
-
-void Dialog::on_connectedPhoneList_itemDoubleClicked(QListWidgetItem *item)
-{
-    Q_UNUSED(item);
-    ui->serialBox->setCurrentIndex(ui->connectedPhoneList->currentRow());
-    on_startServerBtn_clicked();
-}
 
 void Dialog::on_updateNameBtn_clicked()
 {
@@ -899,4 +847,70 @@ void Dialog::showPortEditMenu(const QPoint &pos)
     menu->addAction(clearHistoryAction);
     menu->exec(ui->devicePortEdt->lineEdit()->mapToGlobal(pos));
     delete menu;
+}
+
+int Dialog::findDeviceFromeSerialBox(bool wifi)
+{
+    QString regStr = "\\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\:([0-9]|[1-9]\\d|[1-9]\\d{2}|[1-9]\\d{3}|[1-5]\\d{4}|6[0-4]\\d{3}|65[0-4]\\d{2}|655[0-2]\\d|6553[0-5])\\b";
+#if (QT_VERSION < QT_VERSION_CHECK(6, 0, 0))
+    QRegExp regIP(regStr);
+#else
+    QRegularExpression regIP(regStr);
+#endif
+    for (int i = 0; i < ui->serialBox->count(); ++i) {
+#if (QT_VERSION < QT_VERSION_CHECK(6, 0, 0))
+        bool isWifi = regIP.exactMatch(ui->serialBox->itemText(i));
+#else
+        bool isWifi = regIP.match(ui->serialBox->itemText(i)).hasMatch();
+#endif
+        bool found = wifi ? isWifi : !isWifi;
+        if (found) {
+            return i;
+        }
+    }
+
+    return -1;
+}
+void Dialog::on_connectedPhoneList_itemDoubleClicked(QListWidgetItem *item)
+{
+    Q_UNUSED(item);
+    ui->serialBox->setCurrentIndex(ui->connectedPhoneList->currentRow());
+    on_startServerBtn_clicked();
+}
+
+void Dialog::on_wifiConnectBtn_clicked()
+{
+    on_stopAllServerBtn_clicked();
+    delayMs(200);
+
+    on_updateDevice_clicked();
+    delayMs(200);
+
+    int firstUsbDevice = findDeviceFromeSerialBox(false);
+    if (-1 == firstUsbDevice) {
+        qWarning() << "No use device is found!";
+        return;
+    }
+    ui->serialBox->setCurrentIndex(firstUsbDevice);
+
+    on_getIPBtn_clicked();
+    delayMs(200);
+
+    on_startAdbdBtn_clicked();
+    delayMs(1000);
+
+    on_wirelessConnectBtn_clicked();
+    delayMs(2000);
+
+    on_updateDevice_clicked();
+    delayMs(200);
+
+    int firstWifiDevice = findDeviceFromeSerialBox(true);
+    if (-1 == firstWifiDevice) {
+        qWarning() << "No wifi device is found!";
+        return;
+    }
+    ui->serialBox->setCurrentIndex(firstWifiDevice);
+
+    on_startServerBtn_clicked();
 }

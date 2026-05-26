@@ -23,6 +23,7 @@ struct UserBootConfig
     bool simpleMode       = false;
     bool autoUpdateDevice = true;
     bool showToolbar      = true;
+    bool desktopMode      = false; // Desktop Mode for Samsung DeX
 };
 
 class QSettings;

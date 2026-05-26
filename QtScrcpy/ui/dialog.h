@@ -78,6 +78,7 @@ private:
     QString getGameScript(const QString &fileName);
     void slotActivated(QSystemTrayIcon::ActivationReason reason);
     int findDeviceFromeSerialBox(bool wifi);
+    int getDesktopDisplayId();
     quint32 getBitRate();
     const QString &getServerPath();
     void loadIpHistory();
